@@ -49,6 +49,17 @@ bool TranscodeGPU::Initialize()
 
 	logti("Trying to check available hardware accelerators");
 
+#ifdef HWACCELS_QSV_ENABLED
+    if (CheckSupportedQSV())
+    {
+        logti("Intel QSV context available for experimental AV1 encoding");
+    }
+    else
+    {
+        logtw("Intel oneVPL QSV device unavailable");
+    }
+#endif
+
 	// CUDA
 	if (CheckSupportedNV() == true)
 	{
@@ -100,6 +111,8 @@ bool TranscodeGPU::Uninitialize()
 	}
 
 	_supported_devices.clear();
+	_device_context_qsv.reset();
+	_device_count_qsv = 0;
 	_initialized = false;
 
 #ifdef HWACCELS_NVIDIA_ENABLED
@@ -116,6 +129,8 @@ int32_t TranscodeGPU::GetDeviceCount(cmn::MediaCodecModuleId id)
 			return GetDeviceCountNI();
 		case cmn::MediaCodecModuleId::NVENC:
 			return GetDeviceCountNV();
+		case cmn::MediaCodecModuleId::QSV:
+			return _device_count_qsv;
 		case cmn::MediaCodecModuleId::XMA:
 			return GetDeviceCountXMA();
 		default:
@@ -133,6 +148,8 @@ std::shared_ptr<HwDeviceContext> TranscodeGPU::GetDeviceContext(cmn::MediaCodecM
 			return GetDeviceContextNI(gpu_id);
 		case cmn::MediaCodecModuleId::NVENC:
 			return GetDeviceContextNV(gpu_id);
+		case cmn::MediaCodecModuleId::QSV:
+			return GetDeviceContextQSV(gpu_id);
 		case cmn::MediaCodecModuleId::XMA:
 		default:
 			break;
@@ -166,6 +183,8 @@ ov::String TranscodeGPU::GetDeviceDisplayName(cmn::MediaCodecModuleId id, cmn::D
 			return _device_display_name_ni[gpu_id];
 		case cmn::MediaCodecModuleId::NVENC:
 			return _device_display_name_nv[gpu_id];
+		case cmn::MediaCodecModuleId::QSV:
+			return "Intel oneVPL QSV (default device)";
 		case cmn::MediaCodecModuleId::XMA:
 			return _device_display_name_xma[gpu_id];
 		default:
@@ -185,6 +204,8 @@ ov::String TranscodeGPU::GetDeviceBusId(cmn::MediaCodecModuleId id, cmn::DeviceI
 	{
 		case cmn::MediaCodecModuleId::NVENC:
 			return _device_bus_id_nv[gpu_id];
+		case cmn::MediaCodecModuleId::QSV:
+			return "default";
 		case cmn::MediaCodecModuleId::XMA:
 			return _device_bus_id_xma[gpu_id];
 		default:
@@ -424,6 +445,30 @@ bool TranscodeGPU::CheckSupportedXMA()
 
 	return false;
 #endif
+}
+
+bool TranscodeGPU::CheckSupportedQSV()
+{
+    _device_count_qsv = 0;
+    _device_context_qsv.reset();
+#ifdef HWACCELS_QSV_ENABLED
+    _device_context_qsv = ffmpeg::FFmpegHwDeviceContext::Create(cmn::MediaCodecModuleId::QSV);
+    if (_device_context_qsv == nullptr)
+    {
+        return false;
+    }
+
+    _device_count_qsv = 1;  // MVP: only the default QSV device.
+    _supported_devices.emplace_back(cmn::MediaCodecModuleId::QSV, 0);
+    return true;
+#else
+    return false;
+#endif
+}
+
+std::shared_ptr<HwDeviceContext> TranscodeGPU::GetDeviceContextQSV(cmn::DeviceId gpu_id)
+{
+    return gpu_id == 0 ? _device_context_qsv : nullptr;
 }
 
 bool TranscodeGPU::CheckSupportedNI()

@@ -32,6 +32,9 @@ namespace ffmpeg
 
 			switch (module_id)
 			{
+				case cmn::MediaCodecModuleId::QSV:
+					device_type = AV_HWDEVICE_TYPE_QSV;
+					break;
 				case cmn::MediaCodecModuleId::NVENC:
 					device_type = AV_HWDEVICE_TYPE_CUDA;
 					flags		= 1;  // Use the primary CUDA context

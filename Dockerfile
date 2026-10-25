@@ -39,7 +39,8 @@
 ###########################################################################################################
 # Base Image Selection
 ARG     USE_GPU
-FROM    ubuntu:22.04 AS base
+ARG     BASE_UBUNTU_VERSION=22.04
+FROM    ubuntu:${BASE_UBUNTU_VERSION} AS base
 FROM    nvidia/cuda:12.0.1-devel-ubuntu22.04 AS base_gpu
 FROM    base${USE_GPU:+_gpu} AS base_build
 
@@ -53,6 +54,7 @@ WORKDIR /tmp
 
 ARG     USE_GPU
 ARG     OME_VERSION=master
+ARG     USE_INTEL_QSV=false
 ARG     USE_LOCAL=false
 ARG     STRIP=true
 ARG     OME_ENABLE_JEMALLOC_LG_PAGE_MAX=false
@@ -75,6 +77,11 @@ RUN \
         fi && \
         rm -rf ${TEMP_LOCAL_DIR}
 
+# oneVPL development files are only needed for the Intel build.
+RUN     if [ "${USE_INTEL_QSV}" = "true" ]; then \
+            apt-get update && apt-get install -y libvpl-dev libva-dev libdrm-dev; \
+        fi
+
 ## Install CMake
 RUN \
         wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null && \
@@ -89,6 +96,9 @@ RUN \
         if [ "${USE_GPU}" = "true" ] || [ "${USE_GPU}" = "1" ] || [ "${USE_GPU}" = "yes" ]; then \
             build_options="-DOME_HWACCEL_NVIDIA=ON"; \
             echo -e "/usr/local/cuda/compat\n/usr/local/cuda/lib64/stubs" | tee /etc/ld.so.conf.d/cuda.conf > /dev/null && ldconfig; \
+        fi; \
+        if [ "${USE_INTEL_QSV}" = "true" ]; then \
+            build_options="${build_options} -DOME_HWACCEL_QSV=ON"; \
         fi; \
         if [ "${OME_ENABLE_JEMALLOC_LG_PAGE_MAX}" = "true" ]; then \
             build_options="${build_options} -DOME_ENABLE_JEMALLOC_LG_PAGE_MAX=ON"; \
@@ -121,13 +131,18 @@ ENTRYPOINT ["tail", "-f", "/dev/null"]
 # Release Stage
 ###########################################################################################################
 ARG     USE_GPU
-FROM    ubuntu:22.04 AS release_base
+FROM    ubuntu:${BASE_UBUNTU_VERSION} AS release_base
 FROM    nvidia/cuda:12.0.1-runtime-ubuntu22.04 AS release_base_gpu
 FROM    release_base${USE_GPU:+_gpu} AS release
 
 ## Install libraries by package
 ENV     DEBIAN_FRONTEND=noninteractive
 RUN     apt-get update && apt-get install -y tzdata sudo libgomp1
+
+ARG     USE_INTEL_QSV=false
+RUN     if [ "${USE_INTEL_QSV}" = "true" ]; then \
+            apt-get update && apt-get install -y libvpl2 libmfx-gen1.2 intel-media-va-driver-non-free libva2 libva-drm2; \
+        fi
 
 WORKDIR         /opt/ovenmediaengine/bin
 EXPOSE          80/tcp 8080/tcp 8090/tcp 1935/tcp 3333/tcp 3334/tcp 4000-4005/udp 10000-10003/udp 10000/tcp 9000/tcp

@@ -31,12 +31,14 @@ namespace cfg
 					{
 						Register<Optional>("Enable", &_enable, nullptr,
 										   [=]() -> std::shared_ptr<ConfigError> {
-											   if (_enable == true)
+											   #ifndef HWACCELS_QSV_ENABLED
+										   if (_enable == true)
 											   {
 												   logw("Config", "Hardware acceleration (HWAccels.Encoder) is deprecated. Falling back to the software encoder.");
 												   _enable = false;
 											   }
-											   return nullptr;
+											   #endif
+										   return nullptr;
 										   });
 						Register<Optional>("Modules", &_modules);
 					}
