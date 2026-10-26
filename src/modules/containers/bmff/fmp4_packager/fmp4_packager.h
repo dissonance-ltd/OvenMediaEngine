@@ -112,8 +112,8 @@ namespace bmff
 		// as the boundary position when this track's change propagates
 		double _last_sample_end_timestamp_ms = 0.0;
 
-		// After a track change, video samples are dropped until the first keyframe so
-		// that the discontinuity segment always starts independent
+		// At startup and after a track change, video samples are dropped until the
+		// first keyframe so that the new content always starts independent
 		bool _waiting_for_keyframe = false;
 		uint32_t _dropped_samples_while_waiting = 0;
 
