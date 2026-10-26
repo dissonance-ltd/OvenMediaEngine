@@ -414,6 +414,19 @@ bool AVCodecVideoEncoder::SetParamsQSV()
     _codec.SetPixelFormat(cmn::VideoPixelFormatId::NV12);
     _codec.SetMaxBFrames(0);
 
+    // Forward the profile's quality/speed preset to the Intel AV1 QSV codec.
+    // OME validates: faster, fast, medium, slow, slower.
+    const auto preset = GetRefTrack()->GetPreset().LowerCaseString();
+    if (!preset.IsEmpty())
+    {
+        if (_codec.SetOption("preset", preset.CStr()) < 0)
+        {
+            logte("AV1 QSV rejected preset: %s", preset.CStr());
+            return false;
+        }
+        logti("AV1 QSV preset selected: %s", preset.CStr());
+    }
+
     int gop = GetRefTrack()->GetKeyFrameInterval();
     if (GetRefTrack()->GetKeyFrameIntervalTypeByConfig() == cmn::KeyFrameIntervalType::TIME)
     {
