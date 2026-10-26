@@ -33,6 +33,10 @@ namespace bmff
 		_config = config;
 
 		_target_chunk_duration_ms = _config.chunk_duration_ms;
+
+		// A pull can join a video stream in the middle of a GOP. The initial
+		// content must start independently, just like content after UpdateTrack().
+		_waiting_for_keyframe = (media_track->GetMediaType() == cmn::MediaType::Video);
 	}
 
 	FMP4Packager::~FMP4Packager()
