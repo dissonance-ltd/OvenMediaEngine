@@ -39,9 +39,11 @@ protected:
 	bool CheckSupportedNI();
 	bool CheckSupportedNV();
 	bool CheckSupportedXMA();
+	bool CheckSupportedQSV();
 
 	std::shared_ptr<HwDeviceContext> GetDeviceContextNI(cmn::DeviceId gpu_id = 0);
 	std::shared_ptr<HwDeviceContext> GetDeviceContextNV(cmn::DeviceId gpu_id = 0);
+	std::shared_ptr<HwDeviceContext> GetDeviceContextQSV(cmn::DeviceId gpu_id = 0);
 
 	int32_t GetDeviceCountNI();
 	int32_t GetDeviceCountNV();
@@ -60,6 +62,9 @@ protected:
 	std::shared_ptr<HwDeviceContext> _device_context_ni[MAX_DEVICE_COUNT];
 	ov::String _device_display_name_ni[MAX_DEVICE_COUNT];
 	int32_t _device_count_ni;
+
+	std::shared_ptr<HwDeviceContext> _device_context_qsv;
+	int32_t _device_count_qsv = 0;
 
 	std::shared_ptr<HwDeviceContext> _device_context_nv[MAX_DEVICE_COUNT];
 	ov::String _device_display_name_nv[MAX_DEVICE_COUNT];

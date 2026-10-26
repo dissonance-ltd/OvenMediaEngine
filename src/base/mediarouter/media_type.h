@@ -163,6 +163,7 @@ namespace cmn
 		LIBAOM,	   // SW
 		FDKAAC,	   // SW
 		LIBOPUS,   // SW
+		QSV,      // experimental Intel AV1 encoder
 		NB
 	};
 
@@ -181,6 +182,7 @@ namespace cmn
 			OV_CASE_RETURN_ENUM_STRING(MediaCodecModuleId, LIBAOM);
 			OV_CASE_RETURN_ENUM_STRING(MediaCodecModuleId, FDKAAC);
 			OV_CASE_RETURN_ENUM_STRING(MediaCodecModuleId, LIBOPUS);
+			OV_CASE_RETURN_ENUM_STRING(MediaCodecModuleId, QSV);
 			OV_CASE_RETURN_ENUM_STRING(MediaCodecModuleId, NB);
 		}
 
@@ -533,6 +535,10 @@ namespace cmn
 		{
 			return cmn::MediaCodecModuleId::NVENC;
 		}
+		else if (name.HasSuffix("_QSV") || name.HasSuffix("QSV"))
+		{
+			return cmn::MediaCodecModuleId::QSV;
+		}
 		else if (name.HasSuffix("_NI") || name.HasSuffix("NI") || name.HasSuffix("_NETINT") || name.HasSuffix("NETINT"))
 		{
 			return cmn::MediaCodecModuleId::NETINT;
@@ -572,6 +578,7 @@ namespace cmn
 			OV_CASE_RETURN(MediaCodecModuleId::DEFAULT, "default");
 			OV_CASE_RETURN(MediaCodecModuleId::OPENH264, "openh264");
 			OV_CASE_RETURN(MediaCodecModuleId::NVENC, "nv");
+			OV_CASE_RETURN(MediaCodecModuleId::QSV, "qsv");
 			OV_CASE_RETURN(MediaCodecModuleId::NETINT, "ni");
 			OV_CASE_RETURN(MediaCodecModuleId::XMA, "xma");
 			OV_CASE_RETURN(MediaCodecModuleId::LIBVPX, "libvpx");
@@ -593,6 +600,7 @@ namespace cmn
 		switch (id)
 		{
 			case cmn::MediaCodecModuleId::NVENC:
+			case cmn::MediaCodecModuleId::QSV:
 			case cmn::MediaCodecModuleId::XMA:
 			case cmn::MediaCodecModuleId::NETINT:
 				return true;

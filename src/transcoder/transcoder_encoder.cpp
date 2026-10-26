@@ -75,6 +75,7 @@ std::shared_ptr<std::vector<std::shared_ptr<info::CodecCandidate>>> TranscodeEnc
 			desire_modules.push_back(ov::String::FormatString("%s:%d", "XMA", ALL_GPU_ID));
 			desire_modules.push_back(ov::String::FormatString("%s:%d", "NV", ALL_GPU_ID));
 			desire_modules.push_back(ov::String::FormatString("%s:%d", "NI", ALL_GPU_ID));
+				desire_modules.push_back(ov::String::FormatString("%s:%d", "QSV", ALL_GPU_ID));
 		}
 
 		desire_modules.push_back(ov::String::FormatString("%s:%d", DEFAULT_MODULE_NAME, ALL_GPU_ID));
@@ -183,8 +184,12 @@ std::shared_ptr<TranscodeEncoder> TranscodeEncoder::Instantiate(
 		{
 			case cmn::MediaCodecModuleId::DEFAULT:
 			case cmn::MediaCodecModuleId::LIBAOM:
-				return std::make_shared<AVCodecVideoEncoder>(stream_info, codec_id, cmn::MediaCodecModuleId::LIBAOM);
-			default: break;
+                return std::make_shared<AVCodecVideoEncoder>(stream_info, codec_id, cmn::MediaCodecModuleId::LIBAOM);
+#ifdef HWACCELS_QSV_ENABLED
+            case cmn::MediaCodecModuleId::QSV:
+                return std::make_shared<AVCodecVideoEncoder>(stream_info, codec_id, cmn::MediaCodecModuleId::QSV);
+#endif
+            default: break;
 		}
 	}
 	else if (codec_id == cmn::MediaCodecId::Aac)    return std::make_shared<AVCodecAudioEncoder>(stream_info, codec_id);

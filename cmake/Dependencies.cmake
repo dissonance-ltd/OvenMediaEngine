@@ -183,6 +183,9 @@ macro(ome_find_pkg var pkg version_var)
         if(OME_HWACCEL_XMA)
             list(APPEND _FP_HWACCEL_ARGS -DOME_HWACCEL_XMA=ON)
         endif()
+        if(OME_HWACCEL_QSV)
+            list(APPEND _FP_HWACCEL_ARGS -DOME_HWACCEL_QSV=ON)
+        endif()
         if(OME_ENABLE_X264)
             list(APPEND _FP_HWACCEL_ARGS -DOME_ENABLE_X264=ON)
         else()
@@ -385,6 +388,13 @@ ome_find_pkg(PKG_LIBAVUTIL      libavutil       OME_VER_LIBAVUTIL       REINSTAL
 # ==============================================================================
 # Optional / hardware-accelerated dependencies
 # ==============================================================================
+
+# The AV1 QSV codec is provided by a oneVPL-enabled FFmpeg build.
+if(OME_HWACCEL_QSV)
+    pkg_check_modules(PKG_VPL REQUIRED IMPORTED_TARGET vpl)
+    message(STATUS "[OME] Experimental Intel AV1 QSV encoder: ENABLED")
+    add_compile_definitions(HWACCELS_QSV_ENABLED)
+endif()
 
 # NVIDIA CUDA/NVML — toolchain already validated up top
 if(OME_HWACCEL_NVIDIA)
