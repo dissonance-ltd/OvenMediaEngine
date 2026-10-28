@@ -163,7 +163,7 @@ namespace cmn
 		LIBAOM,	   // SW
 		FDKAAC,	   // SW
 		LIBOPUS,   // SW
-		QSV,      // experimental Intel AV1 encoder
+		QSV,      // Intel oneVPL H.264/HEVC/AV1 encoders
 		NB
 	};
 

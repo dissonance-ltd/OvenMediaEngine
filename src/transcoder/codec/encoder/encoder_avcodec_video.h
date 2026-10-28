@@ -11,10 +11,11 @@
 #include "../../transcoder_encoder.h"
 #include <modules/ffmpeg/ffmpeg_codec.h>
 
-// AVCodecVideoEncoder handles the software FFmpeg video encoders:
-//   - H.264 : libx264 (X264) / libopenh264 (OPENH264, DEFAULT)
+// AVCodecVideoEncoder handles software and Intel oneVPL video encoders:
+//   - H.264 : libx264 (X264) / libopenh264 (OPENH264, DEFAULT) / h264_qsv (QSV)
+//   - HEVC  : hevc_qsv (QSV)
 //   - VP8   : libvpx (LIBVPX)
-//   - AV1   : libaom or experimental oneVPL (av1_qsv)
+//   - AV1   : libaom (LIBAOM, DEFAULT) / av1_qsv (QSV)
 class AVCodecVideoEncoder : public TranscodeEncoder
 {
 public:

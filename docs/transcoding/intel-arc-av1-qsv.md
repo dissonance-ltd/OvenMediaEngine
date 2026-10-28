@@ -1,48 +1,54 @@
-# Experimental Intel Arc AV1 QSV encoding
+# Experimental Intel QSV video encoding
 
-This branch adds **AV1 encoding only** through FFmpeg 7.1.5 `av1_qsv`
-and Intel oneVPL. H.264 ingest decoding and scaling remain on CPU:
-`software decoder -> CPU scale/format=nv12 -> av1_qsv -> OME output`.
-No H.264/HEVC QSV, HW decode, zero-copy, or multi-GPU selection.
+The opt-in oneVPL path supports **H.264, HEVC (H.265) and AV1 encoding**
+through FFmpeg 7.1.5 `h264_qsv`, `hevc_qsv` and `av1_qsv`.
+Ingest decoding and scaling remain on CPU:
+`software decoder -> CPU scale/format=nv12 -> QSV encoder -> OME output`.
+There is no hardware decode, GPU scaling, zero-copy, 10-bit input or explicit
+multi-GPU selection in this implementation.
 
 ## Opt-in Docker build
 
 Use the repository checkout and `USE_LOCAL=true`; otherwise the default
-Dockerfile fetches the upstream OME source instead of the local fork.
+Dockerfile fetches upstream OME instead of this fork. Use a new image tag;
+building a candidate does not deploy it or restart an existing Origin.
 
 ```sh
-docker build -t ome:arc-av1-qsv -f Dockerfile \
+docker build -t ome:intel-qsv-codecs -f Dockerfile \
   --build-arg USE_LOCAL=true \
   --build-arg USE_INTEL_QSV=true \
   --build-arg BASE_UBUNTU_VERSION=24.04 .
 ```
 
-This builds OME with `-DOME_HWACCEL_QSV=ON` and rebuilds its bundled
-FFmpeg with `--enable-libvpl --enable-vaapi` and `av1_qsv`.
-Regular images default to Intel acceleration **disabled**. Intel's oneVPL,
-VAAPI and media runtime libraries are installed only for opt-in builds.
+This enables `OME_HWACCEL_QSV` and builds bundled FFmpeg with
+`--enable-libvpl --enable-vaapi` and all three QSV encoders. Rebuilding only
+the OME binary against the older AV1-only FFmpeg is not sufficient.
+Intel acceleration is disabled by default; the Intel oneVPL, VAAPI and GPU
+runtime packages are installed only for opt-in builds.
+
+The container needs access to the intended Intel render node and the `iHD`
+VAAPI driver. For example, adapt the ports and configuration directory before
+running a separate test instance:
 
 ```sh
-docker run --rm --device /dev/dri:/dev/dri \
+docker run --rm --device /dev/dri/renderD128:/dev/dri/renderD128 \
   -e LIBVA_DRIVER_NAME=iHD \
   -v "$PWD/conf:/opt/ovenmediaengine/bin/origin_conf:ro" \
-  -p 1935:1935 -p 9000:9000 \
-  ome:arc-av1-qsv
+  -p 127.0.0.1:11935:1935 -p 127.0.0.1:13333:3333 \
+  ome:intel-qsv-codecs
 ```
 
-Mount a complete valid OME configuration in `conf/Server.xml` and
-`conf/Logger.xml`; change the port mappings to fit it.
-Ensure the container user can access the Arc render node.
-The current prototype uses the **default oneVPL device** and exposes it
-as `QSV:0`. It cannot select an explicit `/dev/dri/renderD*` path.
-Driver and oneVPL versions in Ubuntu 24.04 may need upgrading depending
-on your card's firmware and the host kernel.
+`conf` must contain a complete valid OME configuration. The current
+implementation uses the **default oneVPL device**, exposed as `QSV:0`; the
+module index is not an explicit `/dev/dri/renderD*` selector. Check the PCI
+association of the passed render node on a multi-GPU host. Driver/runtime
+versions may need adjustment for the GPU firmware and host kernel.
 
 ## Native build
 
-Install oneVPL headers, libva and libdrm development files first (on
-Ubuntu: `libvpl-dev libva-dev libdrm-dev`). Rebuild FFmpeg prerequisites
-even if you have already built the same FFmpeg release without QSV:
+Install oneVPL, libva and libdrm development packages first (on Ubuntu:
+`libvpl-dev libva-dev libdrm-dev`). Rebuild FFmpeg prerequisites even if the
+installed FFmpeg has the same version but only `av1_qsv` enabled:
 
 ```sh
 cmake -DOME_HWACCEL_QSV=ON -DTARGET=ffmpeg -P cmake/InstallPrerequisites.cmake
@@ -50,72 +56,85 @@ cmake -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DOME_HWACCEL_QSV=ON
 cmake --build build/Release -j4
 ```
 
-A oneVPL **GPU** runtime (e.g. `libmfx-gen1.2`), the `iHD` VAAPI
-driver and GPU device access are required **at runtime**.
+The prerequisite installer installs system packages and libraries; run it
+explicitly on the intended build host or in a disposable build container.
+A oneVPL GPU runtime (for example `libmfx-gen1.2`), the `iHD` driver and device
+permissions are also required at runtime.
 
-## Server.xml fragment: Application/OutputProfiles
+## Application/OutputProfiles example
 
-This is not a complete `Server.xml`. Preserve your Provider, Publisher,
-Playlist and VirtualHost configuration.
+This fragment is not a complete `Server.xml`. Preserve the application's
+providers, publishers, access controls and existing output tracks. Add playlist
+renditions referring to these video names to make them available in ABR.
 
 ```xml
 <HWAccels>
+  <Decoder><Enable>false</Enable></Decoder>
   <Encoder>
     <Enable>true</Enable>
-    <Modules>QSV:0,LIBAOM</Modules>
+    <Modules>QSV:0,DEFAULT</Modules>
   </Encoder>
 </HWAccels>
 <OutputProfile>
-  <Name>av1_qsv_test</Name>
+  <Name>qsv_test</Name>
   <OutputStreamName>${OriginStreamName}</OutputStreamName>
   <Encodes>
     <Video>
-      <Name>av1_720p</Name>
-      <Codec>av1</Codec>
-      <Modules>QSV:0,LIBAOM</Modules>
-      <Bitrate>2500000</Bitrate>
-      <Width>1280</Width>
-      <Height>720</Height>
-      <Framerate>30</Framerate>
-      <KeyFrameInterval>60</KeyFrameInterval>
-      <BFrames>0</BFrames>
+      <Name>h264_720p</Name><Codec>h264</Codec><Modules>QSV:0</Modules>
+      <Bitrate>2024000</Bitrate><Width>1280</Width><Height>720</Height>
+      <Framerate>30</Framerate><KeyFrameInterval>60</KeyFrameInterval>
+      <Preset>medium</Preset><Profile>baseline</Profile><BFrames>0</BFrames>
     </Video>
-    <Audio>
-      <Name>aac_audio</Name>
-      <Codec>aac</Codec>
-      <Bitrate>128000</Bitrate>
-      <Samplerate>48000</Samplerate>
-      <Channel>2</Channel>
-    </Audio>
+    <Video>
+      <Name>hevc_720p</Name><Codec>h265</Codec><Modules>QSV:0</Modules>
+      <Bitrate>2024000</Bitrate><Width>1280</Width><Height>720</Height>
+      <Framerate>30</Framerate><KeyFrameInterval>60</KeyFrameInterval>
+      <Preset>medium</Preset><Profile>main</Profile><BFrames>0</BFrames>
+    </Video>
+    <Video>
+      <Name>av1_720p</Name><Codec>av1</Codec><Modules>QSV:0</Modules>
+      <Bitrate>2500000</Bitrate><Width>1280</Width><Height>720</Height>
+      <Framerate>30</Framerate><KeyFrameInterval>60</KeyFrameInterval>
+      <Preset>medium</Preset><BFrames>0</BFrames>
+    </Video>
+    <Audio><Name>audio</Name><Bypass>true</Bypass></Audio>
   </Encodes>
 </OutputProfile>
 ```
 
-The candidate order `QSV:0,LIBAOM` enables software fallback if the
-hardware AV1 encoder fails initialization. For **hardware-only** testing,
-remove `,LIBAOM` from `<Modules>`, then verify in logs or monitoring
-that the active module is `qsv` and not `libaom`.
+For hardware-only verification, pin each video to `QSV:0` and check that the
+active codec is `qsv:0,Ready`, not a software fallback. The global module list
+is used only when the video does not specify its own `<Modules>`.
 
-## Verification on an actual Intel Arc A380
+- H.264: `QSV:0,DEFAULT` allows software OpenH264 fallback. The default QSV
+  profile is `baseline`; `main` and `high` may be selected explicitly.
+- AV1: `QSV:0,LIBAOM` allows software AV1 fallback.
+- HEVC: use `QSV:0`; this path does not add a software HEVC encoder. The
+  default profile is 8-bit `main`, not Main10.
+- Presets `faster`, `fast`, `medium`, `slow`, `slower` are forwarded to FFmpeg.
+- This low-latency QSV path uses `BFrames=0`. H.264/HEVC forced keyframes are
+  requested as IDR frames. Frame- and time-based GOP settings are supported.
 
-1. Check `ls -l /dev/dri`; find the Arc device using its PCI association.
-   Run `vainfo --display drm --device /dev/dri/renderD128` with the
-   correct render-node path and verify an AV1 encoding entry.
-2. Start OME with QSV enabled and confirm Intel device detection.
-3. Ingest a test 720p30 H.264 stream. Verify QSV encoder creation and AV1
-   output, including timestamps and keyframes.
-4. Test LL-HLS and OVT delivery with the resulting AV1 output; check
-   client playback before enabling it on a public Edge.
-5. Exercise no-GPU fallback; long-running stability; several ABR renditions.
-6. Verify that encode throughput keeps up with real time, and that delay
-   does not grow over a multi-hour stream.
+## Verification
 
-## Explicit limitations
+Build with `OME_BUILD_TESTS=ON` and run `ome_test_transcoder`. QSV tests verify
+factory selection, NV12 input, codec-specific output formats, the presence of
+all three bundled FFmpeg encoders and preservation of H.264 software modules.
+They do not require a GPU and do not establish hardware media correctness.
 
-- Experimental **AV1-only** GPU encoder. No GPU decoding or scaling.
-- Device discovery only establishes the QSV device context, not AV1
-  codec support; unsupported devices are handled at encoder initialization.
-- Forcing frames to NV12 incurs CPU processing and memory upload.
-- The initial implementation does not guarantee bitstream compatibility
-  with every AV1 output container/client; check LL-HLS/OVT in hardware tests.
-- Not built or run on a physical Arc A380 in this change.
+For hardware acceptance, use a separate loopback-only OME instance with dummy
+ingest credentials. Publish synthetic H.264/AAC, require all requested tracks
+to report `qsv:0,Ready`, fetch LL-HLS initialization and complete media segments,
+and strictly decode each with `ffmpeg -v error -xerror`. Check both the earliest
+available and later segments, codec/profile, dimensions, frame rate, monotonic
+DTS and an initial keyframe. Keep GPU access distinct from actual encoding:
+a QSV-context startup message alone is not proof that an encoder is working.
+
+## Limitations
+
+- Hardware codec availability depends on the selected Intel GPU and driver;
+  unsupported encoders fail at initialization, allowing configured fallback.
+- NV12 conversion, scaling and memory upload still consume CPU resources.
+- Browser codec support, mixed-codec ABR, OVT/remote Edge delivery, missing-GPU
+  recovery and multi-hour load/stability require their own acceptance checks.
+- Adding these encoders does not automatically migrate or restart deployments.

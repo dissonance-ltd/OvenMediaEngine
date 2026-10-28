@@ -389,10 +389,10 @@ ome_find_pkg(PKG_LIBAVUTIL      libavutil       OME_VER_LIBAVUTIL       REINSTAL
 # Optional / hardware-accelerated dependencies
 # ==============================================================================
 
-# The AV1 QSV codec is provided by a oneVPL-enabled FFmpeg build.
+# QSV encoders are provided by a oneVPL-enabled FFmpeg build.
 if(OME_HWACCEL_QSV)
     pkg_check_modules(PKG_VPL REQUIRED IMPORTED_TARGET vpl)
-    message(STATUS "[OME] Experimental Intel AV1 QSV encoder: ENABLED")
+    message(STATUS "[OME] Intel H.264/HEVC/AV1 QSV encoders: ENABLED")
     add_compile_definitions(HWACCELS_QSV_ENABLED)
 endif()
 

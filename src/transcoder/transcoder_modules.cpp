@@ -73,12 +73,12 @@ namespace tc
 		// Video Codecs - Hardware Accelerated
 		// --------------------------------------------------------------------------
 #ifdef HWACCELS_QSV_ENABLED
-        // No hardware decode or scaling: only AV1 encoding.
+        // Hardware encoding only; decoding and scaling stay on the CPU.
         for (int32_t i = 0; i < TranscodeGPU::GetInstance()->GetDeviceCount(cmn::MediaCodecModuleId::QSV); ++i)
         {
-            Register(info::CodecModule("Intel oneVPL AV1 QSV encoder",
+            Register(info::CodecModule("Intel oneVPL H.264/HEVC/AV1 QSV encoder",
                                        cmn::MediaType::Video, cmn::MediaCodecModuleId::QSV, i, "default",
-                                       {cmn::MediaCodecId::Av1},
+                                       {cmn::MediaCodecId::H264, cmn::MediaCodecId::H265, cmn::MediaCodecId::Av1},
                                        false, false, true, true));
         }
 #endif
