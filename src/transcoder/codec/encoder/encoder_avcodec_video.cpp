@@ -394,14 +394,14 @@ bool AVCodecVideoEncoder::SetParamsLibAOM()
 	return true;
 }
 
-// Intel Arc AV1 QSV MVP: accept NV12 frames from the existing CPU filter graph.
+// Intel oneVPL encoders accept NV12 frames from the existing CPU filter graph.
 bool AVCodecVideoEncoder::SetParamsQSV()
 {
     const auto resolution = GetRefTrack()->GetResolution();
     const auto frame_rate = GetRefTrack()->GetFrameRate();
     if (resolution.width <= 0 || resolution.height <= 0 || frame_rate <= 0)
     {
-        logte("AV1 QSV needs a valid output resolution and framerate");
+        logte("QSV needs a valid output resolution and framerate");
         return false;
     }
 
@@ -414,17 +414,38 @@ bool AVCodecVideoEncoder::SetParamsQSV()
     _codec.SetPixelFormat(cmn::VideoPixelFormatId::NV12);
     _codec.SetMaxBFrames(0);
 
-    // Forward the profile's quality/speed preset to the Intel AV1 QSV codec.
+    // Forward the profile's quality/speed preset to the selected QSV codec.
     // OME validates: faster, fast, medium, slow, slower.
     const auto preset = GetRefTrack()->GetPreset().LowerCaseString();
     if (!preset.IsEmpty())
     {
         if (_codec.SetOption("preset", preset.CStr()) < 0)
         {
-            logte("AV1 QSV rejected preset: %s", preset.CStr());
+            logte("QSV rejected preset: %s", preset.CStr());
             return false;
         }
-        logti("AV1 QSV preset selected: %s", preset.CStr());
+        logti("%s QSV preset selected: %s", cmn::GetCodecIdString(_codec_id), preset.CStr());
+    }
+
+    auto profile = GetRefTrack()->GetProfile().LowerCaseString();
+    if (profile.IsEmpty())
+    {
+        if (_codec_id == cmn::MediaCodecId::H264) profile = "baseline";
+        else if (_codec_id == cmn::MediaCodecId::H265) profile = "main";
+    }
+    if (!profile.IsEmpty() && _codec.SetOption("profile", profile.CStr()) < 0)
+    {
+        logte("QSV rejected profile: %s", profile.CStr());
+        return false;
+    }
+    if (_codec_id == cmn::MediaCodecId::H264 || _codec_id == cmn::MediaCodecId::H265)
+    {
+        // A forced keyframe must be independently decodable, not just an I-frame.
+        if (_codec.SetOption("forced_idr", 1) < 0)
+        {
+            logte("QSV could not enable forced IDR frames");
+            return false;
+        }
     }
 
     int gop = GetRefTrack()->GetKeyFrameInterval();
@@ -437,8 +458,8 @@ bool AVCodecVideoEncoder::SetParamsQSV()
         gop = std::max(1, static_cast<int>(frame_rate));
     }
     _codec.SetGopSize(gop);
-    _bitstream_format = cmn::BitstreamFormat::AV1_OBU;
-    _packet_type = cmn::PacketType::RAW;
+    _bitstream_format = GetBitstreamFormat();
+    _packet_type = _codec_id == cmn::MediaCodecId::Av1 ? cmn::PacketType::RAW : cmn::PacketType::NALU;
     return true;
 }
 
@@ -446,13 +467,23 @@ bool AVCodecVideoEncoder::OpenCodec()
 {
 	bool allocated = false;
 
-	if (_codec_id == cmn::MediaCodecId::Vp8)
+	if (_module_id == cmn::MediaCodecModuleId::QSV)
+	{
+		switch (_codec_id)
+		{
+			case cmn::MediaCodecId::H264: allocated = _codec.AllocEncoderByName("h264_qsv"); break;
+			case cmn::MediaCodecId::H265: allocated = _codec.AllocEncoderByName("hevc_qsv"); break;
+			case cmn::MediaCodecId::Av1: allocated = _codec.AllocEncoderByName("av1_qsv"); break;
+			default: return false;
+		}
+	}
+	else if (_codec_id == cmn::MediaCodecId::Vp8)
 	{
 		allocated = _codec.AllocEncoder(GetCodecID());
 	}
 	else if (_codec_id == cmn::MediaCodecId::Av1)
 	{
-		allocated = _codec.AllocEncoderByName(_module_id == cmn::MediaCodecModuleId::QSV ? "av1_qsv" : "libaom-av1");
+		allocated = _codec.AllocEncoderByName("libaom-av1");
 	}
 	else if (_module_id == cmn::MediaCodecModuleId::X264)
 	{
@@ -471,13 +502,17 @@ bool AVCodecVideoEncoder::OpenCodec()
 	}
 
 	bool result = false;
-	switch (_codec_id)
+	if (_module_id == cmn::MediaCodecModuleId::QSV)
+	{
+		result = SetParamsQSV();
+	}
+	else switch (_codec_id)
 	{
 		case cmn::MediaCodecId::Vp8:
 			result = SetParamsVp8();
 			break;
 		case cmn::MediaCodecId::Av1:
-			result = _module_id == cmn::MediaCodecModuleId::QSV ? SetParamsQSV() : SetParamsLibAOM();
+			result = SetParamsLibAOM();
 			break;
 		default:
 			if (_module_id == cmn::MediaCodecModuleId::X264)
@@ -502,7 +537,7 @@ bool AVCodecVideoEncoder::OpenCodec()
         auto device = TranscodeGPU::GetInstance()->GetDeviceContext(cmn::MediaCodecModuleId::QSV, GetDeviceID());
         if (device == nullptr || !_codec.SetHwDeviceContext(device))
         {
-            logte("AV1 QSV: could not attach the oneVPL device context");
+            logte("QSV: could not attach the oneVPL device context");
             return false;
         }
     }

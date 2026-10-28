@@ -99,7 +99,7 @@ set(OME_DEP_PREFIX "/opt/ovenmediaengine" CACHE PATH "Installation prefix for ex
 
 option(OME_HWACCEL_NVIDIA           "Enable NVIDIA GPU hardware acceleration"            OFF)
 option(OME_HWACCEL_XMA              "Enable Xilinx XMA hardware acceleration"            OFF)
-option(OME_HWACCEL_QSV              "Enable experimental Intel AV1 QSV via oneVPL"        OFF)
+option(OME_HWACCEL_QSV              "Enable Intel H.264/HEVC/AV1 QSV via oneVPL"           OFF)
 option(OME_ENABLE_X264              "Enable libx264 encoder support"                     ON)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     option(OME_ENABLE_JEMALLOC      "Enable jemalloc memory allocator"                   ON)

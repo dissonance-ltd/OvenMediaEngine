@@ -52,7 +52,7 @@ bool TranscodeGPU::Initialize()
 #ifdef HWACCELS_QSV_ENABLED
     if (CheckSupportedQSV())
     {
-        logti("Intel QSV context available for experimental AV1 encoding");
+        logti("Intel QSV context available for H.264/HEVC/AV1 encoding");
     }
     else
     {

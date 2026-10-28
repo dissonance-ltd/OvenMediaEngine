@@ -549,10 +549,10 @@ if(ENABLE_X264)
 endif()
 
 if(ENABLE_QSV)
-    # QSV AV1 on Linux uses Intel oneVPL and its VAAPI child device.
+    # QSV on Linux uses Intel oneVPL and its VAAPI child device.
     string(REPLACE "--disable-vaapi" "" _FFMPEG_ADDI_LIBS "${_FFMPEG_ADDI_LIBS}")
     string(APPEND _FFMPEG_ADDI_LIBS " --enable-vaapi --enable-libvpl")
-    string(APPEND _FFMPEG_ADDI_ENCODER ",av1_qsv")
+    string(APPEND _FFMPEG_ADDI_ENCODER ",av1_qsv,h264_qsv,hevc_qsv")
 endif()
 
 if(ENABLE_NVIDIA)

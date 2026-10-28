@@ -160,6 +160,18 @@ std::shared_ptr<TranscodeEncoder> TranscodeEncoder::Instantiate(
 	cmn::MediaCodecModuleId module_id,
 	const info::Stream &stream_info)
 {
+	if (module_id == cmn::MediaCodecModuleId::QSV)
+	{
+#ifdef HWACCELS_QSV_ENABLED
+		if (codec_id == cmn::MediaCodecId::H264 || codec_id == cmn::MediaCodecId::H265 ||
+			codec_id == cmn::MediaCodecId::Av1)
+		{
+			return std::make_shared<AVCodecVideoEncoder>(stream_info, codec_id, module_id);
+		}
+#endif
+		return nullptr;
+	}
+
 	if (codec_id == cmn::MediaCodecId::H264)
 	{
 		switch (module_id)
@@ -185,10 +197,6 @@ std::shared_ptr<TranscodeEncoder> TranscodeEncoder::Instantiate(
 			case cmn::MediaCodecModuleId::DEFAULT:
 			case cmn::MediaCodecModuleId::LIBAOM:
                 return std::make_shared<AVCodecVideoEncoder>(stream_info, codec_id, cmn::MediaCodecModuleId::LIBAOM);
-#ifdef HWACCELS_QSV_ENABLED
-            case cmn::MediaCodecModuleId::QSV:
-                return std::make_shared<AVCodecVideoEncoder>(stream_info, codec_id, cmn::MediaCodecModuleId::QSV);
-#endif
             default: break;
 		}
 	}
