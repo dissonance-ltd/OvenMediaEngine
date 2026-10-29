@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "llhls_chunklist.h"
+#include "llhls_keyframe_start_aligner.h"
 
 #include <base/modules/data_format/cue_event/cue_event.h>
 #include <base/modules/marker/marker.h>
@@ -612,4 +613,169 @@ TEST(LLHlsChunklist, NoKeyTagWhenCencDisabled)
 
 	// No key registered, so the playlist carries no EXT-X-KEY
 	EXPECT_EQ(playlist.IndexOf("#EXT-X-KEY:"), -1);
+}
+
+namespace
+{
+	constexpr uint32_t kAlignerVideoTrack = 0;
+	constexpr uint32_t kAlignerAudioTrack = 1;
+	constexpr uint32_t kAlignerSecondVideoTrack = 2;
+	constexpr uint32_t kAlignerSecondAudioTrack = 3;
+
+	// (track id, DTS in ms) of each packet the aligner let through
+	using AlignerOutput = std::vector<std::pair<uint32_t, int64_t>>;
+
+	struct AlignerFeeder
+	{
+		AlignerFeeder(int32_t reference_video_track_id = kAlignerVideoTrack,
+					  const std::vector<uint32_t> &video_track_ids = {kAlignerVideoTrack},
+					  const std::vector<uint32_t> &audio_track_ids = {kAlignerAudioTrack},
+					  size_t max_held_packets = 100)
+			: aligner(reference_video_track_id, video_track_ids, audio_track_ids, max_held_packets, "llhls_test")
+		{
+		}
+
+		void Video(uint32_t track_id, int64_t dts_ms, bool keyframe)
+		{
+			Push(cmn::MediaType::Video, track_id, dts_ms, keyframe ? MediaPacketFlag::Key : MediaPacketFlag::NoFlag,
+				 cmn::BitstreamFormat::H264_AVCC, cmn::PacketType::NALU);
+		}
+
+		void Audio(int64_t dts_ms, uint32_t track_id = kAlignerAudioTrack)
+		{
+			Push(cmn::MediaType::Audio, track_id, dts_ms, MediaPacketFlag::Key,
+				 cmn::BitstreamFormat::AAC_RAW, cmn::PacketType::RAW);
+		}
+
+		void Push(cmn::MediaType media_type, uint32_t track_id, int64_t dts_ms, MediaPacketFlag flag, cmn::BitstreamFormat bitstream_format, cmn::PacketType packet_type)
+		{
+			auto data = std::make_shared<ov::Data>();
+			uint8_t byte = 0x00;
+			data->Append(&byte, 1);
+
+			auto packet = std::make_shared<MediaPacket>(media_type, track_id, data, dts_ms, dts_ms, 0, flag, bitstream_format, packet_type);
+			for (const auto &released : aligner.Push(packet, dts_ms * 1000))
+			{
+				output.emplace_back(released->GetTrackId(), released->GetDts());
+			}
+		}
+
+		LLHlsKeyframeStartAligner aligner;
+		AlignerOutput output;
+	};
+} // namespace
+
+TEST(LLHlsKeyframeStartAligner, FirstVideoKeyframePassesEverythingInOrder)
+{
+	AlignerFeeder feeder;
+
+	// Audio ahead of the first video packet is held only until it arrives
+	feeder.Audio(0);
+	feeder.Audio(21);
+	EXPECT_TRUE(feeder.output.empty());
+	EXPECT_FALSE(feeder.aligner.IsAligned());
+
+	feeder.Video(kAlignerVideoTrack, 0, true);
+	EXPECT_TRUE(feeder.aligner.IsAligned());
+
+	AlignerOutput expected = {{kAlignerAudioTrack, 0}, {kAlignerAudioTrack, 21}, {kAlignerVideoTrack, 0}};
+	EXPECT_EQ(feeder.output, expected);
+}
+
+TEST(LLHlsKeyframeStartAligner, MidGopJoinStartsAtTheFirstKeyframe)
+{
+	AlignerFeeder feeder;
+
+	feeder.Video(kAlignerVideoTrack, 100, false);
+	feeder.Audio(110);
+	feeder.Audio(170);
+	EXPECT_TRUE(feeder.output.empty());
+
+	feeder.Video(kAlignerVideoTrack, 166, true);
+	EXPECT_TRUE(feeder.aligner.IsAligned());
+
+	// The audio before the keyframe goes with the video before it
+	AlignerOutput expected = {{kAlignerAudioTrack, 170}, {kAlignerVideoTrack, 166}};
+	EXPECT_EQ(feeder.output, expected);
+}
+
+TEST(LLHlsKeyframeStartAligner, AudioArrivingAfterTheKeyframeIsCutByDts)
+{
+	AlignerFeeder feeder;
+
+	feeder.Video(kAlignerVideoTrack, 100, false);
+	feeder.Video(kAlignerVideoTrack, 166, true);
+
+	// A late audio packet may still belong before the start
+	EXPECT_FALSE(feeder.aligner.IsAligned());
+
+	feeder.Audio(121);
+	feeder.Audio(163);
+	EXPECT_FALSE(feeder.aligner.IsAligned());
+
+	feeder.Audio(170);
+	EXPECT_TRUE(feeder.aligner.IsAligned());
+
+	AlignerOutput expected = {{kAlignerVideoTrack, 166}, {kAlignerAudioTrack, 170}};
+	EXPECT_EQ(feeder.output, expected);
+}
+
+TEST(LLHlsKeyframeStartAligner, HeldAudioIsBoundedByTheLimit)
+{
+	AlignerFeeder feeder(kAlignerVideoTrack, {kAlignerVideoTrack}, {kAlignerAudioTrack}, 2);
+
+	feeder.Audio(0);
+	feeder.Audio(21);
+	feeder.Audio(42);
+	feeder.Video(kAlignerVideoTrack, 0, true);
+
+	// The oldest held packet gave way
+	AlignerOutput expected = {{kAlignerAudioTrack, 21}, {kAlignerAudioTrack, 42}, {kAlignerVideoTrack, 0}};
+	EXPECT_EQ(feeder.output, expected);
+}
+
+TEST(LLHlsKeyframeStartAligner, AudioOnlyStreamIsNotHeld)
+{
+	AlignerFeeder feeder(-1, {}, {kAlignerAudioTrack});
+	EXPECT_TRUE(feeder.aligner.IsAligned());
+
+	feeder.Audio(0);
+	EXPECT_EQ(feeder.output, (AlignerOutput{{kAlignerAudioTrack, 0}}));
+}
+
+TEST(LLHlsKeyframeStartAligner, EachVideoTrackStartsAtItsOwnKeyframe)
+{
+	AlignerFeeder feeder(kAlignerVideoTrack, {kAlignerVideoTrack, kAlignerSecondVideoTrack}, {kAlignerAudioTrack});
+
+	feeder.Video(kAlignerVideoTrack, 0, true);
+	feeder.Video(kAlignerSecondVideoTrack, 10, false);
+	feeder.Audio(21);
+	EXPECT_FALSE(feeder.aligner.IsAligned());
+
+	feeder.Video(kAlignerSecondVideoTrack, 40, true);
+	EXPECT_TRUE(feeder.aligner.IsAligned());
+
+	// The second track waits for its own keyframe and leaves the audio alone
+	AlignerOutput expected = {{kAlignerVideoTrack, 0}, {kAlignerAudioTrack, 21}, {kAlignerSecondVideoTrack, 40}};
+	EXPECT_EQ(feeder.output, expected);
+}
+
+TEST(LLHlsKeyframeStartAligner, AudioTrackThatPassedIsNotCutAgain)
+{
+	AlignerFeeder feeder(kAlignerVideoTrack, {kAlignerVideoTrack}, {kAlignerAudioTrack, kAlignerSecondAudioTrack});
+
+	feeder.Video(kAlignerVideoTrack, 100, false);
+	feeder.Video(kAlignerVideoTrack, 166, true);
+	feeder.Audio(170);
+
+	// The first audio track goes back in DTS while the second has not passed yet
+	feeder.Audio(50);
+	feeder.Audio(150, kAlignerSecondAudioTrack);
+	EXPECT_FALSE(feeder.aligner.IsAligned());
+
+	feeder.Audio(190, kAlignerSecondAudioTrack);
+	EXPECT_TRUE(feeder.aligner.IsAligned());
+
+	AlignerOutput expected = {{kAlignerVideoTrack, 166}, {kAlignerAudioTrack, 170}, {kAlignerAudioTrack, 50}, {kAlignerSecondAudioTrack, 190}};
+	EXPECT_EQ(feeder.output, expected);
 }
